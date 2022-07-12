@@ -9,6 +9,57 @@ MQTTClient client;
 WiFiClient net;
 
 
+enum OpModes
+{
+  MODE_INIT, // 0
+  MODE_STANDBY,
+  MODE_START,
+  MODE_PUMP,
+  MODE_CALIBRATE,
+  MODE_MEASURE,
+  MODE_RELEASE,
+  MODE_ERR // 6
+};
+int OPMODE = 0;  // switch variable
+
+
+// ############## timestamps for periodic functions
+uint64_t lastPump = 0;  // timestamp for pump actuation
+uint64_t lastmeasurement = 0;  // timestamp for last pressure measurement
+
+// ############## timestamps for periodic functions
+
+// measurement
+uint32_t pressureval = 0;  // value for measured differential pressure
+uint32_t pressurevalold = 0 ;  // value for the old measured pressure
+
+uint32_t pressurecal = 0;  // value for calibrated pressure
+// measurement
+
+bool interlock = false;  // switch to prevent all  
+
+
+void statemachine(){
+  switch (OPMODE)
+  {
+  case MODE_INIT:
+    // check for inputs deactivated
+    if (!interlock)
+    {
+      OPMODE = MODE_STANDBY;
+    }
+    
+    break;
+  case MODE_STANDBY:
+    // check for 
+    
+    
+    break;
+  default:
+    break;
+}
+}
+
 void connectMQTT(){
   Serial.print("checking wifi...");
   while (WiFi.status() != WL_CONNECTED) {
@@ -30,6 +81,12 @@ void messageReceived(String &topic, String &payload) {
   Serial.println(topic);
   Serial.println("payload:");
   Serial.println(payload);
+  
+  if (payload = "Go" and !interlock)  // if interlock is not set, we can enable measurement
+  {
+    interlock = true;  // lock actuating again
+    OPMODE = MODE_START;
+  }
   
 
 }
