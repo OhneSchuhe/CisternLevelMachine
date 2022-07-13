@@ -2,6 +2,7 @@
 #include <ESP8266WiFi.h>          //https://github.com/esp8266/Arduino
 #include <WiFiManager.h>   
 #include <MQTTClient.h>
+#include <ArduinoOTA.h>
 #include <pw.h>
 
 WiFiManager wifiman;
@@ -13,12 +14,13 @@ enum OpModes
 {
   MODE_INIT, // 0
   MODE_STANDBY,
+  MODE_OTA,
   MODE_START,
   MODE_PUMP,
   MODE_CALIBRATE,
   MODE_MEASURE,
   MODE_RELEASE,
-  MODE_ERR // 6
+  MODE_ERR // 7
 };
 int OPMODE = 0;  // switch variable
 
@@ -37,7 +39,8 @@ uint32_t pressurecal = 0;  // value for calibrated pressure
 // measurement
 
 bool interlock = false;  // switch to prevent all  
-
+bool otaflag = false;  // flag for enabling OTA updates
+bool otainit = false;
 
 void statemachine(){
   switch (OPMODE)
@@ -55,6 +58,12 @@ void statemachine(){
     
     
     break;
+  case MODE_OTA:
+    ArduinoOTA.handle(); 
+    break;
+  case MODE_RELEASE: 
+    break;
+    
   default:
     break;
 }
@@ -86,7 +95,13 @@ void messageReceived(String &topic, String &payload) {
   {
     interlock = true;  // lock actuating again
     OPMODE = MODE_START;
+  }else if (payload = "OTA_EN" and !interlock)
+  {
+    interlock = true;
+    OPMODE = MODE_OTA;
+    ArduinoOTA.begin();
   }
+  
   
 
 }
@@ -96,10 +111,45 @@ void setup() {
   // start Serial
   Serial.begin(9600);
   // init Wifimanager
-  
   // autoconnect from EEprom, else enable "CisternAP"
   wifiman.autoConnect("CisternAP");
   Serial.print("Wifi connected");
+  // init OTA
+  ArduinoOTA.setPassword(otapass);  // set OTA pass for uploading 
+
+  ArduinoOTA.onStart([](){
+    String type;
+    interlock = true;  // prevent callbacks interrupting the operation
+    if (ArduinoOTA.getCommand() == U_FLASH)
+    {
+      type = "sketch";
+    } else {
+      type = "filesystem";
+    }
+    Serial.println("Start updating" + type);
+  });
+  ArduinoOTA.onEnd([](){
+    Serial.println("\nEnd");
+  });
+  ArduinoOTA.onProgress([](uint32_t progress, uint32_t total){
+    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+  });
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("Error[%u]: ", error);
+    if (error == OTA_AUTH_ERROR) {
+      Serial.println("Auth Failed");
+    } else if (error == OTA_BEGIN_ERROR) {
+      Serial.println("Begin Failed");
+    } else if (error == OTA_CONNECT_ERROR) {
+      Serial.println("Connect Failed");
+    } else if (error == OTA_RECEIVE_ERROR) {
+      Serial.println("Receive Failed");
+    } else if (error == OTA_END_ERROR) {
+      Serial.println("End Failed");
+    }
+  });
+  
+  Serial.println(net.localIP());
   // init mqtt client
   client.begin("192.168.178.81", 1883, net);
   client.onMessage(messageReceived);
@@ -112,5 +162,8 @@ void loop() {
   if (!client.connected()){
     connectMQTT();
   }
+
+  statemachine();
+
   // put your main code here, to run repeatedly:
 }
