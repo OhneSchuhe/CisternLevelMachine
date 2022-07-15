@@ -73,7 +73,7 @@ void statemachine(){
       OPMODE = MODE_OTA;
     }else if (measureflag)
     {
-      /* code */
+      OPMODE = MODE_START;
     }    
     break;
   case MODE_OTA:
@@ -81,7 +81,14 @@ void statemachine(){
     ArduinoOTA.handle(); 
     break;
   case MODE_START:
-
+    // enable solenoid valve for some time to release all pressure in the system
+    // calibrate zero
+    // disable solenoid valve
+    // enable pumping to pressurize system for some time
+    // disable pump
+    // measure pressure
+    // calculate volume
+    // publish calculated value to MQTT
     break;
   case MODE_RELEASE: 
     break;
