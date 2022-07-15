@@ -40,7 +40,19 @@ uint32_t pressurecal = 0;  // value for calibrated pressure
 
 bool interlock = false;  // switch to prevent all  
 bool otaflag = false;  // flag for enabling OTA updates
-bool otainit = false;
+bool measureflag = false;  // flag for starting measurement
+
+String ackPublishTopic = "Cistern/ack";
+String measurePublishTopic = "Cistern/values";
+
+
+void clientackpub(String message){
+  client.publish(ackPublishTopic,message);
+}
+
+void clientvalpub(String message){
+  client.publish(measurePublishTopic,message);
+}
 
 void statemachine(){
   switch (OPMODE)
@@ -54,12 +66,22 @@ void statemachine(){
     
     break;
   case MODE_STANDBY:
-    // check for 
-    
-    
+    // check for start flag
+    if (otaflag)
+    {
+      clientackpub("OTA_RDY");
+      OPMODE = MODE_OTA;
+    }else if (measureflag)
+    {
+      /* code */
+    }    
     break;
   case MODE_OTA:
+    otaflag = false;
     ArduinoOTA.handle(); 
+    break;
+  case MODE_START:
+
     break;
   case MODE_RELEASE: 
     break;
@@ -88,17 +110,25 @@ void connectMQTT(){
 void messageReceived(String &topic, String &payload) {
   Serial.println("incoming: ");
   Serial.println(topic);
-  Serial.println("payload:");
-  Serial.println(payload);
+  Serial.print("payload: |");
+  Serial.print(payload);
+  Serial.print("|");
+  payload.trim();
+  Serial.print("trimmed payload: |");
+  Serial.print(payload);
+  Serial.print("|");
   
-  if (payload = "Go" and !interlock)  // if interlock is not set, we can enable measurement
+  if (payload == "Go" and !interlock)  // if interlock is not set, we can enable measurement
   {
+    Serial.println("Measurement commencing");
     interlock = true;  // lock actuating again
     OPMODE = MODE_START;
-  }else if (payload = "OTA_EN" and !interlock)
+  }
+  else if (payload == "OTA_EN" and !interlock)
   {
+    Serial.println("Received OTA Command, enabling OTA Handling");
     interlock = true;
-    OPMODE = MODE_OTA;
+    otaflag = true;
     ArduinoOTA.begin();
   }
   
@@ -118,6 +148,7 @@ void setup() {
   ArduinoOTA.setPassword(otapass);  // set OTA pass for uploading 
 
   ArduinoOTA.onStart([](){
+    clientackpub("OTA_STARTING");
     String type;
     interlock = true;  // prevent callbacks interrupting the operation
     if (ArduinoOTA.getCommand() == U_FLASH)
