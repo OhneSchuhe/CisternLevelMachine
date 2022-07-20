@@ -27,27 +27,34 @@ int OPMODE = 0;  // switch variable
 
 // ############## timestamps for periodic functions
 uint64_t lastPump = 0;  // timestamp for pump actuation
-uint64_t lastmeasurement = 0;  // timestamp for last pressure measurement
+uint64_t lastMeasurement = 0;  // timestamp for last pressure measurement
+uint64_t lastStatus = 0;  // timestamp for periodic status messages
 
 // ############## timestamps for periodic functions
 
-// measurement
+// ############## config vars
+uint64_t statusInterval = 5000;
+// ############## config vars
+
+// ############## measurement
 uint32_t pressureval = 0;  // value for measured differential pressure
 uint32_t pressurevalold = 0 ;  // value for the old measured pressure
 
 uint32_t pressurecal = 0;  // value for calibrated pressure
-// measurement
+// ############## measurement
 
 bool interlock = false;  // switch to prevent all  
 bool otaflag = false;  // flag for enabling OTA updates
+bool busyflag = false;  // flag for signaling device busy
 bool measureflag = false;  // flag for starting measurement
 
-String ackPublishTopic = "Cistern/ack";
+String statePublishTopic = "Cistern/state";
 String measurePublishTopic = "Cistern/values";
+String EspStatus = "INIT";
 
 
-void clientackpub(String message){
-  client.publish(ackPublishTopic,message);
+void clientstatepub(String message){
+  client.publish(statePublishTopic,message);
 }
 
 void clientvalpub(String message){
@@ -59,20 +66,27 @@ void statemachine(){
   {
   case MODE_INIT:
     // check for inputs deactivated
+    EspStatus = "Initializing";
     if (!interlock)
     {
+      EspStatus = "Standby";
       OPMODE = MODE_STANDBY;
     }
     
     break;
   case MODE_STANDBY:
     // check for start flag
+    statusInterval = 300000;
     if (otaflag)
     {
-      clientackpub("OTA_RDY");
+      EspStatus = "OTA_RDY";
+      statusPrinter(1);
+      
       OPMODE = MODE_OTA;
     }else if (measureflag)
     {
+      EspStatus = "Starting Measurement";
+      statusPrinter(1);
       OPMODE = MODE_START;
     }    
     break;
@@ -138,11 +152,47 @@ void messageReceived(String &topic, String &payload) {
     otaflag = true;
     ArduinoOTA.begin();
   }
+  else if (interlock)
+  {
+    // cmnd was received but device is busy
+    busyflag = true;
+  }
   
   
 
 }
+void statusPrinter(int force)
+{
+  long now = millis();
+  if (now - lastStatus >= statusInterval or force == 1)
+  {
 
+    lastStatus = now;
+    Serial.print("<{\"Status_Mega\":\"");
+    Serial.print(EspStatus);
+    Serial.print("\",\"Uptime\":\"");
+    Serial.print(now);
+    Serial.println("\"}>");
+    clientstatepub(EspStatus);
+    if (force = 1)
+    {
+      statusInterval = 5000;
+    }
+    
+  }
+  else if (force == 2)
+  {
+    Serial.print("<{\"Status_Mega\":\"");
+    Serial.print(EspStatus);
+    Serial.print("\",#\"Uptime\":\"");
+    Serial.print(now);
+    Serial.println("\"}>");
+    clientstatepub("Device busy");
+    busyflag = false;
+  
+    
+  }
+}
 void setup() {
   // put your setup code here, to run once:
   // start Serial
@@ -155,7 +205,7 @@ void setup() {
   ArduinoOTA.setPassword(otapass);  // set OTA pass for uploading 
 
   ArduinoOTA.onStart([](){
-    clientackpub("OTA_STARTING");
+    clientstatepub("OTA_STARTING");
     String type;
     interlock = true;  // prevent callbacks interrupting the operation
     if (ArduinoOTA.getCommand() == U_FLASH)
@@ -200,7 +250,16 @@ void loop() {
   if (!client.connected()){
     connectMQTT();
   }
-
+  if (busyflag and !otaflag)
+  {
+    EspStatus = "Device busy";
+    statusPrinter(2);  // force publishing status
+  }
+  else if(!otaflag)  // do not do this if ota in progress
+  {
+    statusPrinter(0);
+  }
+  
   statemachine();
 
   // put your main code here, to run repeatedly:
