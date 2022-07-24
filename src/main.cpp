@@ -29,10 +29,10 @@ enum opModes
 uint8_t OPMODE = 0; // switch variable
 
 // IOS
-uint8_t pin_pump = D5;
-uint8_t pin_valve = D0;
-uint8_t pin_dout = D7;
-uint8_t pin_clk = D8;
+uint8_t pin_pump = D6;
+uint8_t pin_valve = D8;
+uint8_t pin_dout = D5;
+uint8_t pin_clk = D0;
 // IOS
 
 
