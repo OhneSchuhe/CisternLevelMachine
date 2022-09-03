@@ -21,7 +21,7 @@ enum opModes
   MODE_OTA,
   MODE_START,
   MODE_PUMP,
-  MODE_CALIBRATE,
+  MODE_SELFTEST,
   MODE_MEASURE,
   MODE_RELEASE,
   MODE_ERR // 7
@@ -39,14 +39,15 @@ uint8_t pin_clk = D0;
 // ############## timestamps for periodic functions
 uint64_t lastPump = 0;        // timestamp for pump actuation
 uint64_t lastMeasurement = 0; // timestamp for last pressure measurement
-uint64_t lastCalibration = 0;  // timestamp for calibration
+uint64_t lastSelfTest = 0;  // timestamp for calibration
 uint64_t lastStatus = 0;      // timestamp for periodic status messages
 uint32_t lastInit = 0;        // timestamp for init routine
 // ############## timestamps for periodic functions
 
 // ############## config vars
 uint64_t statusInterval = 5000;
-uint64_t calibrationInterval = 5000;
+uint64_t selfTestInterval = 5000;
+uint16_t psensorgain = 64;  // gain for the HX711 module. possible vars are 64 and 128 for channel A
 // ############## config vars
 
 // ############## measurement
@@ -56,11 +57,13 @@ uint32_t pressurevalold = 0; // value for the old measured pressure
 uint32_t pressurecal = 0; // value for calibrated pressure
 // ############## measurement
 
+// ############## flags
 bool interlock = false;   // switch to prevent all
 bool otaflag = false;     // flag for enabling OTA updates
 bool busyflag = false;    // flag for signaling device busy
 bool measureflag = false; // flag for starting measurement
-
+bool selftestflag = false;  // flag for self testing
+// ############## flags
 String statePublishTopic = "Cistern/state";
 String measurePublishTopic = "Cistern/values";
 String EspStatus = "INIT";
@@ -71,6 +74,28 @@ uint8_t dios[] =
   pin_valve
 };
 
+void psensordebug()
+{
+   if (psensor.is_ready()) {
+    long reading = psensor.read();
+    Serial.print("HX711 reading: ");
+    Serial.println(reading);
+  } else {
+    Serial.println("HX711 not found.");
+  }
+}
+
+ uint32_t readpsensor()
+{
+  uint32_t val;
+  // if sensor is ready, read value
+  if (psensor.is_ready()) {
+    val = psensor.read();
+  } else {  // else set value to 0
+    pressureval = 0;
+  }
+  return val;
+}
 
 
 void clientstatepub(String message)
@@ -85,11 +110,11 @@ void clientvalpub(String message)
 void statusPrinter(int force)
 {
   long now = millis();
-  if (now - lastStatus >= statusInterval or force == 1)
+  if ((now - lastStatus >= statusInterval) or force == 1)
   {
 
     lastStatus = now;
-    Serial.print("<{\"Status_Mega\":\"");
+    Serial.print("<{\"Status_Cistern\":\"");
     Serial.print(EspStatus);
     Serial.print("\",\"Uptime\":\"");
     Serial.print(now);
@@ -99,10 +124,13 @@ void statusPrinter(int force)
     {
       statusInterval = 5000;
     }
+    //debug
+    psensordebug();
+    //debug
   }
   else if (force == 2)
   {
-    Serial.print("<{\"Status_Mega\":\"");
+    Serial.print("<{\"Status_Cistern\":\"");
     Serial.print(EspStatus);
     Serial.print("\",#\"Uptime\":\"");
     Serial.print(now);
@@ -144,8 +172,8 @@ void statemachine()
     {
       EspStatus = "Starting Measurement";
       statusPrinter(1);
-      lastCalibration = millis();  // create timestamp
-      OPMODE = MODE_CALIBRATE;
+      lastSelfTest = millis();  // create timestamp
+      OPMODE = MODE_SELFTEST;
     }
     break;
   case MODE_OTA:
@@ -154,12 +182,29 @@ void statemachine()
     ArduinoOTA.handle();
     break;
   }
-  case MODE_CALIBRATE:
+  case MODE_SELFTEST:
    { // close solenoid valve
+    statusInterval = 1000;
     long now = millis();
-    if (now - lastCalibration >= calibrationInterval )
+    EspStatus = "Self Test";
+    if (!selftestflag)
     {
-      EspStatus = "";/* code */
+      digitalWrite(pin_valve, HIGH);  // close valve
+      pressureval = readpsensor();  // read current pressure as baseline
+      digitalWrite(pin_pump, HIGH);  // enable pump
+      selftestflag = true;
+    }
+    
+    
+    if (now - lastSelfTest >= selfTestInterval )
+    {
+      if (readpsensor() > pressureval)
+      {
+        /* code */
+      }
+      
+      digitalWrite(pin_pump, LOW);  // disable pump
+      digitalWrite(pin_valve, LOW);  // open valve
     }
     
     // activate pump
@@ -227,7 +272,7 @@ void messageReceived(String &topic, String &payload)
   {
     Serial.println("Measurement commencing");
     interlock = true; // lock actuating again
-    OPMODE = MODE_START;
+    measureflag = true;
   }
   else if (payload == "OTA_EN" and !interlock)
   {
@@ -247,14 +292,14 @@ void setup()
 {
   // put your setup code here, to run once:
   // start Serial
-  Serial.begin(9600);
+  Serial.begin(57600);
   // init dios
   for (uint8_t i = 0; i < sizeof(dios)/sizeof(*dios); i++)
   {
     pinMode(dios[i],OUTPUT);
   }
   // init HX711 module
-  
+  psensor.begin(pin_dout,pin_clk,psensorgain);
   // init Wifimanager
   // autoconnect from EEprom, else enable "CisternAP"
   wifiman.autoConnect("CisternAP");
@@ -302,6 +347,7 @@ void setup()
   connectMQTT();
 }
 
+
 void loop()
 {
   client.loop();
@@ -318,7 +364,7 @@ void loop()
   {
     statusPrinter(0);
   }
-
+  statusPrinter(0);
   statemachine();
 
   // put your main code here, to run repeatedly:
