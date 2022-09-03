@@ -63,6 +63,7 @@ bool otaflag = false;     // flag for enabling OTA updates
 bool busyflag = false;    // flag for signaling device busy
 bool measureflag = false; // flag for starting measurement
 bool selftestflag = false;  // flag for self testing
+bool resetflag = false;  // flag for resetting from error
 // ############## flags
 String statePublishTopic = "Cistern/state";
 String measurePublishTopic = "Cistern/values";
@@ -125,7 +126,7 @@ void statusPrinter(int force)
       statusInterval = 5000;
     }
     //debug
-    psensordebug();
+    // psensordebug();
     //debug
   }
   else if (force == 2)
@@ -198,12 +199,25 @@ void statemachine()
     
     if (now - lastSelfTest >= selfTestInterval )
     {
+      digitalWrite(pin_pump, LOW);  // disable pump
       if (readpsensor() > pressureval)
       {
-        /* code */
+        // time stamp self test done
+        // for releasing all the pressure from the system
+        EspStatus = "Self Test pass";
+        statusPrinter(1);
+        OPMODE = MODE_START;
+        selftestflag = false;
+      }
+      else
+      {
+        EspStatus = "Self Test fail";
+        statusPrinter(1);
+        OPMODE = MODE_ERR;
+        selftestflag = false;
       }
       
-      digitalWrite(pin_pump, LOW);  // disable pump
+     
       digitalWrite(pin_valve, LOW);  // open valve
     }
     
@@ -230,7 +244,12 @@ void statemachine()
   {  break;}
   case MODE_ERR:
     {statusInterval = 2000;
-    EspStatus = "";
+    EspStatus = "Error State";
+    if (resetflag)
+    {
+      OPMODE = MODE_INIT;
+    }
+    
     break;}
   default:
    { break;}
