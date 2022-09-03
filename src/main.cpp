@@ -41,7 +41,7 @@ uint64_t lastPump = 0;        // timestamp for pump actuation
 uint64_t lastMeasurement = 0; // timestamp for last pressure measurement
 uint64_t lastCalibration = 0;  // timestamp for calibration
 uint64_t lastStatus = 0;      // timestamp for periodic status messages
-
+uint32_t lastInit = 0;        // timestamp for init routine
 // ############## timestamps for periodic functions
 
 // ############## config vars
@@ -118,6 +118,11 @@ void statemachine()
   case MODE_INIT:
     // check for inputs deactivated
     EspStatus = "Initializing";
+    if (lastInit == 0) 
+    {
+      lastInit = millis();  // get timestamp
+    } 
+     
     if (!interlock)
     {
       EspStatus = "Standby";
@@ -127,6 +132,7 @@ void statemachine()
     break;
   case MODE_STANDBY:
     // check for start flag
+
     statusInterval = 300000;
     if (otaflag)
     {
@@ -143,15 +149,17 @@ void statemachine()
     }
     break;
   case MODE_OTA:
+  {
     otaflag = false;
     ArduinoOTA.handle();
     break;
+  }
   case MODE_CALIBRATE:
-    // close solenoid valve
+   { // close solenoid valve
     long now = millis();
     if (now - lastCalibration >= calibrationInterval )
     {
-      /* code */
+      EspStatus = "";/* code */
     }
     
     // activate pump
@@ -159,9 +167,10 @@ void statemachine()
     // if pressure rises, system is able to function
     // else go into Error mode
     break;
+}
   case MODE_START:
-    // enable solenoid valve for some time to release all pressure in the system
-    // calibrate pressure sensor zero
+{    // enable solenoid valve for some time to release all pressure in the system
+    // calibrate zero
     // disable solenoid valve
     // enable pumping to pressurize system for some time
     // disable pump
@@ -171,11 +180,15 @@ void statemachine()
 
 
     break;
+}
   case MODE_RELEASE:
-    break;
-
+  {  break;}
+  case MODE_ERR:
+    {statusInterval = 2000;
+    EspStatus = "";
+    break;}
   default:
-    break;
+   { break;}
   }
 }
 
@@ -241,7 +254,7 @@ void setup()
     pinMode(dios[i],OUTPUT);
   }
   // init HX711 module
-  HX711 psensor;
+  
   // init Wifimanager
   // autoconnect from EEprom, else enable "CisternAP"
   wifiman.autoConnect("CisternAP");
@@ -281,6 +294,7 @@ void setup()
     } });
 
   Serial.println(net.localIP());
+  Serial.printf("Wifi Strength[%d]: " ,  WiFi.RSSI());
   // init mqtt client
   client.begin("192.168.178.81", 1883, net);
   client.onMessage(messageReceived);
