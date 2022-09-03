@@ -39,12 +39,14 @@ uint8_t pin_clk = D0;
 // ############## timestamps for periodic functions
 uint64_t lastPump = 0;        // timestamp for pump actuation
 uint64_t lastMeasurement = 0; // timestamp for last pressure measurement
+uint64_t lastCalibration = 0;  // timestamp for calibration
 uint64_t lastStatus = 0;      // timestamp for periodic status messages
 
 // ############## timestamps for periodic functions
 
 // ############## config vars
 uint64_t statusInterval = 5000;
+uint64_t calibrationInterval = 5000;
 // ############## config vars
 
 // ############## measurement
@@ -136,16 +138,30 @@ void statemachine()
     {
       EspStatus = "Starting Measurement";
       statusPrinter(1);
-      OPMODE = MODE_START;
+      lastCalibration = millis();  // create timestamp
+      OPMODE = MODE_CALIBRATE;
     }
     break;
   case MODE_OTA:
     otaflag = false;
     ArduinoOTA.handle();
     break;
+  case MODE_CALIBRATE:
+    // close solenoid valve
+    long now = millis();
+    if (now - lastCalibration >= calibrationInterval )
+    {
+      /* code */
+    }
+    
+    // activate pump
+    // measure pressure for a definec timeframe
+    // if pressure rises, system is able to function
+    // else go into Error mode
+    break;
   case MODE_START:
     // enable solenoid valve for some time to release all pressure in the system
-    // calibrate zero
+    // calibrate pressure sensor zero
     // disable solenoid valve
     // enable pumping to pressurize system for some time
     // disable pump
