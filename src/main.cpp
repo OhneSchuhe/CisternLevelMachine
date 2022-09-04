@@ -40,7 +40,8 @@ uint8_t pin_clk = D0;
 // ############## timestamps for periodic functions
 uint64_t lastPump = 0;        // timestamp for pump actuation
 uint64_t lastMeasurement = 0; // timestamp for last pressure measurement
-uint64_t lastSelfTest = 0;  // timestamp for calibration
+uint64_t lastSelfTest = 0;  // timestamp for self test
+uint64_t lastcalibration = 0;  // timestamp for calibration
 uint64_t lastStatus = 0;      // timestamp for periodic status messages
 uint32_t lastInit = 0;        // timestamp for init routine
 // ############## timestamps for periodic functions
@@ -48,7 +49,11 @@ uint32_t lastInit = 0;        // timestamp for init routine
 // ############## config vars
 uint64_t statusInterval = 5000;
 uint64_t selfTestInterval = 5000;
+uint64_t calibrationInterval = 5000;
+uint64_t calibrationTimeout = 300000;  // 5m timeout for calibration
 uint16_t psensorgain = 64;  // gain for the HX711 module. possible vars are 64 and 128 for channel A
+uint8_t eepromscaleadress = 0;  // address for storing the psensor scaling factor in eeprom
+uint32_t psensorscale = 0;  // scaling factor for the calibrated scale
 // ############## config vars
 
 // ############## measurement
@@ -64,10 +69,12 @@ bool otaflag = false;     // flag for enabling OTA updates
 bool busyflag = false;    // flag for signaling device busy
 bool measureflag = false; // flag for starting measurement
 bool selftestflag = false;  // flag for self testing
+bool calibrateflag = false;  // flag for starting calibration
 bool resetflag = false;  // flag for resetting from error
 // ############## flags
 String statePublishTopic = "Cistern/state";
 String measurePublishTopic = "Cistern/values";
+String commandTopic = "Cistern/Cmnd/*";
 String EspStatus = "INIT";
 
 uint8_t dios[] = 
@@ -177,6 +184,14 @@ void statemachine()
       lastSelfTest = millis();  // create timestamp
       OPMODE = MODE_SELFTEST;
     }
+    else if (calibrateflag)
+    {
+      EspStatus = "Starting Calibration";
+      statusPrinter(1);
+      lastcalibration = millis();
+      OPMODE = MODE_CALIBRATE;
+    }
+    
     break;
   case MODE_OTA:
   {
@@ -239,6 +254,20 @@ void statemachine()
 }
   case MODE_CALIBRATE:
   {
+    long now = millis();
+    digitalWrite(pin_valve,HIGH);  // close valve
+    digitalWrite(pin_pump,HIGH);  // activate pump to pressurize the system
+    if (now - lastcalibration < calibrationInterval)
+    {
+      psensor.set_scale();  // set scale without having calibrated value
+      psensor.tare();  // tare scale
+      psensor.get_units(10);  // get untared units
+    }
+    if (now - lastcalibration < calibrationTimeout)
+    {
+      /* code */
+    }
+    
     // https://github.com/bogde/HX711#how-to-calibrate-your-load-cell
     // call set_scale() without parameter
     // call tare() without parameter
@@ -246,7 +275,7 @@ void statemachine()
     // wait for input of measured height of the water level in the cistern via MQTT
     // calculate the parameter for set_scale()
     // TODO: add a method of checking calculated height against measured height and adjust scale parameter accordingly
-    
+    calibrateflag = false;
     break;
   }
   case MODE_START:
@@ -297,7 +326,7 @@ void connectMQTT()
   }
   Serial.println("\nconnected!");
 
-  client.subscribe("Cistern/Cmnd");
+  client.subscribe(commandTopic);
 }
 
 void messageReceived(String &topic, String &payload)
@@ -337,6 +366,10 @@ void setup()
   // put your setup code here, to run once:
   // start Serial
   Serial.begin(57600);
+  // init EEPROM
+  EEPROM.begin(8);
+  // get scale factor from EEPROM
+  EEPROM.get(eepromscaleadress, psensorscale);
   // init dios
   for (uint8_t i = 0; i < sizeof(dios)/sizeof(*dios); i++)
   {
