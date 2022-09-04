@@ -4,6 +4,7 @@
 #include <MQTTClient.h>
 #include <ArduinoOTA.h>
 #include "HX711.h"
+#include <EEPROM.h>
 #include <pw.h>
 
 WiFiManager wifiman;
@@ -20,7 +21,7 @@ enum opModes
   MODE_STANDBY,
   MODE_OTA,
   MODE_START,
-  MODE_PUMP,
+  MODE_CALIBRATE,
   MODE_SELFTEST,
   MODE_MEASURE,
   MODE_RELEASE,
@@ -88,12 +89,12 @@ void psensordebug()
 
  uint32_t readpsensor()
 {
-  uint32_t val;
+  uint32_t val = 0;
   // if sensor is ready, read value
   if (psensor.is_ready()) {
-    val = psensor.read();
+    val = psensor.read_average(20);
   } else {  // else set value to 0
-    pressureval = 0;
+    val = 0;
   }
   return val;
 }
@@ -190,8 +191,17 @@ void statemachine()
     EspStatus = "Self Test";
     if (!selftestflag)
     {
+      psensor.power_up();
       digitalWrite(pin_valve, HIGH);  // close valve
-      pressureval = readpsensor();  // read current pressure as baseline
+      for (size_t i = 0; i < 5; i++)
+      {
+        Serial.print("reading psensor");
+        pressureval = readpsensor();  // read current pressure as baseline
+        if (pressureval != 0)
+        {
+          break;
+        } 
+      }
       digitalWrite(pin_pump, HIGH);  // enable pump
       selftestflag = true;
     }
@@ -227,6 +237,18 @@ void statemachine()
     // else go into Error mode
     break;
 }
+  case MODE_CALIBRATE:
+  {
+    // https://github.com/bogde/HX711#how-to-calibrate-your-load-cell
+    // call set_scale() without parameter
+    // call tare() without parameter
+    // call get_units(10)
+    // wait for input of measured height of the water level in the cistern via MQTT
+    // calculate the parameter for set_scale()
+    // TODO: add a method of checking calculated height against measured height and adjust scale parameter accordingly
+    
+    break;
+  }
   case MODE_START:
 {    // enable solenoid valve for some time to release all pressure in the system
     // calibrate zero
@@ -241,7 +263,10 @@ void statemachine()
     break;
 }
   case MODE_RELEASE:
-  {  break;}
+  {
+    psensor.power_down();
+      break;
+  }
   case MODE_ERR:
     {statusInterval = 2000;
     EspStatus = "Error State";
