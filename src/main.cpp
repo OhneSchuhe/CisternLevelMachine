@@ -59,7 +59,7 @@ uint32_t psensorscale = 0;  // scaling factor for the calibrated scale
 // ############## measurement
 uint32_t pressureval = 0;    // value for measured differential pressure
 uint32_t pressurevalold = 0; // value for the old measured pressure
-
+uint8_t measureddepth = 0;  // value for actual measured depth of the cistern
 uint32_t pressurecal = 0; // value for calibrated pressure
 // ############## measurement
 
@@ -74,7 +74,7 @@ bool resetflag = false;  // flag for resetting from error
 // ############## flags
 String statePublishTopic = "Cistern/state";
 String measurePublishTopic = "Cistern/values";
-String commandTopic = "Cistern/Cmnd";
+String commandTopic = "Cistern/Cmnd/#";
 String EspStatus = "INIT";
 
 uint8_t dios[] = 
@@ -155,6 +155,8 @@ void statemachine()
   case MODE_INIT:
     // check for inputs deactivated
     EspStatus = "Initializing";
+    resetflag = false;  // reset resetflag in case device was reset from Err State
+    interlock = false;
     if (lastInit == 0) 
     {
       lastInit = millis();  // get timestamp
@@ -254,6 +256,7 @@ void statemachine()
 }
   case MODE_CALIBRATE:
   {
+    bool measurementreceived = false;  // flag for exiting while loop or something to wait on measurement of actual depth
     long now = millis();
     digitalWrite(pin_valve,HIGH);  // close valve
     digitalWrite(pin_pump,HIGH);  // activate pump to pressurize the system
@@ -293,6 +296,7 @@ void statemachine()
 }
   case MODE_RELEASE:
   {
+    interlock = false;  // reset interlock mode
     psensor.power_down();
       break;
   }
@@ -340,7 +344,11 @@ void messageReceived(String &topic, String &payload)
   Serial.print("trimmed payload: |");
   Serial.print(payload);
   Serial.print("|");
-
+  if (topic == "Cistern/Cmnd/Calibrate")
+  {
+    /* code */
+  }
+  
   if (payload == "Go" and !interlock) // if interlock is not set, we can enable measurement
   {
     Serial.println("Measurement commencing");
@@ -354,6 +362,11 @@ void messageReceived(String &topic, String &payload)
     otaflag = true;
     ArduinoOTA.begin();
   }
+  else if (payload == "Reset_Err")
+  {
+    resetflag = true;
+  }
+  
   else if (interlock)
   {
     // cmnd was received but device is busy
