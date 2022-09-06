@@ -49,7 +49,7 @@ uint32_t lastInit = 0;        // timestamp for init routine
 // ############## config vars
 uint64_t statusInterval = 5000;
 uint64_t selfTestInterval = 5000;
-uint64_t calibrationInterval = 5000;
+uint64_t calibrationdelay = 5000;
 uint64_t calibrationTimeout = 300000;  // 5m timeout for calibration
 uint16_t psensorgain = 64;  // gain for the HX711 module. possible vars are 64 and 128 for channel A
 uint8_t eepromscaleadress = 0;  // address for storing the psensor scaling factor in eeprom
@@ -257,7 +257,7 @@ void statemachine()
     long now = millis();
     digitalWrite(pin_valve,HIGH);  // close valve
     digitalWrite(pin_pump,HIGH);  // activate pump to pressurize the system
-    if (now - lastcalibration < calibrationInterval)
+    if (now - lastcalibration < calibrationdelay)
     {
       psensor.set_scale();  // set scale without having calibrated value
       psensor.tare();  // tare scale
@@ -374,6 +374,7 @@ void setup()
   for (uint8_t i = 0; i < sizeof(dios)/sizeof(*dios); i++)
   {
     pinMode(dios[i],OUTPUT);
+    digitalWrite(dios[i],LOW);
   }
   // init HX711 module
   psensor.begin(pin_dout,pin_clk,psensorgain);
