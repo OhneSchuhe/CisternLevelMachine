@@ -74,7 +74,7 @@ bool resetflag = false;  // flag for resetting from error
 // ############## flags
 String statePublishTopic = "Cistern/state";
 String measurePublishTopic = "Cistern/values";
-String commandTopic = "Cistern/Cmnd/*";
+String commandTopic = "Cistern/Cmnd";
 String EspStatus = "INIT";
 
 uint8_t dios[] = 
