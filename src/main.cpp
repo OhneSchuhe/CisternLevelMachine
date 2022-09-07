@@ -2,11 +2,11 @@
 #include <ESP8266WiFi.h> //https://github.com/esp8266/Arduino
 #include <WiFiManager.h>
 #include <MQTTClient.h>
-#include <ArduinoOTA.h>
 #include "HX711.h"
 #include <EEPROM.h>
 #include <pw.h>
 
+#include <ota.h>
 WiFiManager wifiman;
 MQTTClient client;
 WiFiClient net;
@@ -59,8 +59,8 @@ uint32_t psensorscale = 0;  // scaling factor for the calibrated scale
 // ############## measurement
 uint32_t pressureval = 0;    // value for measured differential pressure
 uint32_t pressurevalold = 0; // value for the old measured pressure
-uint8_t measureddepth = 0;  // value for actual measured depth of the cistern
 uint32_t pressurecal = 0; // value for calibrated pressure
+float_t measureddepth = 0.0;  // value for actual measured depth of the cistern
 // ############## measurement
 
 // ############## flags
@@ -198,7 +198,7 @@ void statemachine()
   case MODE_OTA:
   {
     otaflag = false;
-    ArduinoOTA.handle();
+    handleota();
     break;
   }
   case MODE_SELFTEST:
@@ -256,21 +256,6 @@ void statemachine()
 }
   case MODE_CALIBRATE:
   {
-    bool measurementreceived = false;  // flag for exiting while loop or something to wait on measurement of actual depth
-    long now = millis();
-    digitalWrite(pin_valve,HIGH);  // close valve
-    digitalWrite(pin_pump,HIGH);  // activate pump to pressurize the system
-    if (now - lastcalibration < calibrationdelay)
-    {
-      psensor.set_scale();  // set scale without having calibrated value
-      psensor.tare();  // tare scale
-      psensor.get_units(10);  // get untared units
-    }
-    if (now - lastcalibration < calibrationTimeout)
-    {
-      /* code */
-    }
-    
     // https://github.com/bogde/HX711#how-to-calibrate-your-load-cell
     // call set_scale() without parameter
     // call tare() without parameter
@@ -278,6 +263,32 @@ void statemachine()
     // wait for input of measured height of the water level in the cistern via MQTT
     // calculate the parameter for set_scale()
     // TODO: add a method of checking calculated height against measured height and adjust scale parameter accordingly
+    bool measurementreceived = false;  // flag for exiting while loop or something to wait on measurement of actual depth
+    float psensorunits = 0.0;
+    float calcscale = 0.0;
+    long now = millis();
+    digitalWrite(pin_valve,HIGH);  // close valve
+    digitalWrite(pin_pump,HIGH);  // activate pump to pressurize the system
+    if (now - lastcalibration < calibrationdelay)
+    {
+      psensor.set_scale();  // set scale without having calibrated value
+      psensor.tare();  // tare scale
+      psensorunits = psensor.get_units(10);  // get untared units
+    }
+    if (measureddepth != 0.0)
+    {
+      calcscale = psensorunits / measureddepth;  // calculate scale factor
+      psensor.set_scale(calcscale);
+      measurementreceived = true;
+      measureddepth = 0.0;
+    }
+    else if (now - lastcalibration < calibrationTimeout or measurementreceived)
+    {
+      OPMODE = MODE_STANDBY;
+    }
+    
+
+    
     calibrateflag = false;
     break;
   }
@@ -344,9 +355,11 @@ void messageReceived(String &topic, String &payload)
   Serial.print("trimmed payload: |");
   Serial.print(payload);
   Serial.print("|");
+  
   if (topic == "Cistern/Cmnd/Calibrate")
   {
-    /* code */
+    measureddepth = payload.toFloat();
+    interlock = true;
   }
   
   if (payload == "Go" and !interlock) // if interlock is not set, we can enable measurement
@@ -360,7 +373,7 @@ void messageReceived(String &topic, String &payload)
     Serial.println("Received OTA Command, enabling OTA Handling");
     interlock = true;
     otaflag = true;
-    ArduinoOTA.begin();
+    beginota();
   }
   else if (payload == "Reset_Err")
   {
@@ -396,39 +409,8 @@ void setup()
   wifiman.autoConnect("CisternAP");
   Serial.print("Wifi connected");
   // init OTA
-  ArduinoOTA.setPassword(otapass); // set OTA pass for uploading
-
-  ArduinoOTA.onStart([]()
-                     {
-    clientstatepub("OTA_STARTING");
-    String type;
-    interlock = true;  // prevent callbacks interrupting the operation
-    if (ArduinoOTA.getCommand() == U_FLASH)
-    {
-      type = "sketch";
-    } else {
-      type = "filesystem";
-    }
-    Serial.println("Start updating" + type); });
-  ArduinoOTA.onEnd([]()
-                   { Serial.println("\nEnd"); });
-  ArduinoOTA.onProgress([](uint32_t progress, uint32_t total)
-                        { Serial.printf("Progress: %u%%\r", (progress / (total / 100))); });
-  ArduinoOTA.onError([](ota_error_t error)
-                     {
-    Serial.printf("Error[%u]: ", error);
-    if (error == OTA_AUTH_ERROR) {
-      Serial.println("Auth Failed");
-    } else if (error == OTA_BEGIN_ERROR) {
-      Serial.println("Begin Failed");
-    } else if (error == OTA_CONNECT_ERROR) {
-      Serial.println("Connect Failed");
-    } else if (error == OTA_RECEIVE_ERROR) {
-      Serial.println("Receive Failed");
-    } else if (error == OTA_END_ERROR) {
-      Serial.println("End Failed");
-    } });
-
+  setupota(otapass);
+  
   Serial.println(net.localIP());
   Serial.printf("Wifi Strength[%d]: " ,  WiFi.RSSI());
   // init mqtt client
