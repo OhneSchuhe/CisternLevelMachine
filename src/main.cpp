@@ -202,7 +202,11 @@ void statemachine()
     break;
   }
   case MODE_SELFTEST:
-   { // close solenoid valve
+   {
+    // activate pump
+    // measure pressure for a definec timeframe
+    // if pressure rises, system is able to function
+    // else go into Error mode
     statusInterval = 1000;
     long now = millis();
     EspStatus = "Self Test";
@@ -248,10 +252,7 @@ void statemachine()
       digitalWrite(pin_valve, LOW);  // open valve
     }
     
-    // activate pump
-    // measure pressure for a definec timeframe
-    // if pressure rises, system is able to function
-    // else go into Error mode
+    
     break;
 }
   case MODE_CALIBRATE:
@@ -290,7 +291,9 @@ void statemachine()
     break;
   }
   case MODE_START:
-{    // enable solenoid valve for some time to release all pressure in the system
+{   
+
+    // enable solenoid valve for some time to release all pressure in the system
     // calibrate zero
     // disable solenoid valve
     // enable pumping to pressurize system for some time
@@ -353,8 +356,9 @@ void messageReceived(String &topic, String &payload)
   Serial.print(payload);
   Serial.print("|");
   
-  if (topic == "Cistern/Cmnd/Calibrate")
+  if (topic == "Cistern/Cmnd/Calibrate" and !interlock)
   {
+    calibrateflag = true;
     measureddepth = payload.toFloat();
     interlock = true;
   }
