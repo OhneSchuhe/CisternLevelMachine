@@ -285,11 +285,8 @@ void statemachine()
     else if (now - lastcalibration < calibrationTimeout or measurementreceived)
     {
       OPMODE = MODE_STANDBY;
+      calibrateflag = false;
     }
-    
-
-    
-    calibrateflag = false;
     break;
   }
   case MODE_START:
