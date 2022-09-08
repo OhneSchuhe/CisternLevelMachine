@@ -270,20 +270,21 @@ void statemachine()
     long now = millis();
     digitalWrite(pin_valve,HIGH);  // close valve
     digitalWrite(pin_pump,HIGH);  // activate pump to pressurize the system
-    if (now - lastcalibration < calibrationdelay)
+    if (now - lastcalibration > calibrationdelay)
     {
       psensor.set_scale();  // set scale without having calibrated value
       psensor.tare();  // tare scale
       psensorunits = psensor.get_units(10);  // get untared units
+    
+      if (measureddepth != 0.0)
+      {
+        calcscale = psensorunits / measureddepth;  // calculate scale factor
+        psensor.set_scale(calcscale);
+        measurementreceived = true;
+        measureddepth = 0.0;
+      }
     }
-    if (measureddepth != 0.0)
-    {
-      calcscale = psensorunits / measureddepth;  // calculate scale factor
-      psensor.set_scale(calcscale);
-      measurementreceived = true;
-      measureddepth = 0.0;
-    }
-    else if (now - lastcalibration < calibrationTimeout or measurementreceived)
+    else if (now - lastcalibration > calibrationTimeout or measurementreceived)
     {
       OPMODE = MODE_STANDBY;
       calibrateflag = false;
