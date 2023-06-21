@@ -20,7 +20,7 @@ enum opModes
   MODE_INIT, // 0
   MODE_STANDBY,
   MODE_OTA,
-  MODE_START,
+  MODE_PREP,
   MODE_CALIBRATE,
   MODE_SELFTEST,
   MODE_MEASURE,
@@ -38,6 +38,7 @@ uint8_t pin_clk = D0;
 
 // ############## timestamps for periodic functions
 uint64_t lastPump = 0;        // timestamp for pump actuation
+uint64_t lastMPrep = 0; // timestamp for preparation before measurement
 uint64_t lastMeasurement = 0; // timestamp for last pressure measurement
 uint64_t lastSelfTest = 0;  // timestamp for self test
 uint64_t lastcalibration = 0;  // timestamp for calibration
@@ -291,7 +292,8 @@ void statemachine()
         // for releasing all the pressure from the system
         EspStatus = "Self Test pass";
         statusPrinter(1);
-        OPMODE = MODE_START;
+        OPMODE = MODE_PREP;
+        lastMPrep = millis();
         selftestflag = false;
       }
       else
@@ -327,6 +329,8 @@ void statemachine()
     
     if (now - lastcalibration > calibrationdelay)
     {
+      digitalWrite(pin_pump,LOW);  // deactivate pump
+      delay(equitime);  // let the system rest
       Serial.println("Calibration interval reached.");
       psensor.set_scale();  // set scale without having calibrated value
       psensor.tare();  // tare scale
@@ -342,6 +346,7 @@ void statemachine()
         Serial.println("");
         psensor.set_scale(calcscale);
         measurementreceived = true;
+        digitalWrite(pin_valve,LOW);  // open valve
         EspStatus = "Calibration done";
         statusPrinter(1);
         OPMODE = MODE_STANDBY;
@@ -351,26 +356,44 @@ void statemachine()
    
     break;
   }
-  case MODE_START:
+  case MODE_PREP:
 {   
   long now = millis();
-  if (now - lastcalibration > calibrationdelay)
+  digitalWrite(pin_valve,LOW);  // open valve
+  // open solenoid valve for some time to release all pressure in the system
+  if (now - lastMPrep > preleasetime)
     {
-
+      // calibrate zero
+      psensor.tare();
+      // close solenoid valve
+      digitalWrite(pin_valve,HIGH); 
+      // enable pumping to pressurize system for some time
+      digitalWrite(pin_pump,HIGH); 
+      lastMeasurement = millis();
+      OPMODE = MODE_MEASURE;
     }
     
-    // open solenoid valve for some time to release all pressure in the system
-    // calibrate zero
-    // close solenoid valve
-    // enable pumping to pressurize system for some time
-    // disable pump
-    // measure pressure
-    // calculate volume
-    // publish calculated value to MQTT
+   
+   
 
 
     break;
 }
+  case MODE_MEASURE:
+  {
+    long now = millis();
+    if (now - lastMeasurement > pumpinterval)
+    {
+      // disable pump
+      digitalWrite(pin_pump,LOW);  
+      delay(equitime);
+      // measure pressure
+      // calculate volume
+      // publish calculated value to MQTT
+    }
+    break;
+  }
+   
   case MODE_RELEASE:
   {
     interlock = false;  // reset interlock mode
