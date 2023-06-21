@@ -36,7 +36,6 @@ uint8_t pin_dout = D5;
 uint8_t pin_clk = D0;
 // IOS
 
-
 // ############## timestamps for periodic functions
 uint64_t lastPump = 0;        // timestamp for pump actuation
 uint64_t lastMeasurement = 0; // timestamp for last pressure measurement
@@ -44,16 +43,31 @@ uint64_t lastSelfTest = 0;  // timestamp for self test
 uint64_t lastcalibration = 0;  // timestamp for calibration
 uint64_t lastStatus = 0;      // timestamp for periodic status messages
 uint32_t lastInit = 0;        // timestamp for init routine
+
 // ############## timestamps for periodic functions
 
 // ############## config vars
-uint64_t statusInterval = 5000;
-uint64_t selfTestInterval = 5000;
-uint64_t calibrationdelay = 5000;
+// ####### status
+uint64_t statusInterval = 5000;  // base setting for publishing a status message
+
+// ####### self test
+uint64_t selfTestInterval = 5000; // interval for self test
+
+// ####### calibration
+uint64_t calibrationdelay = 5000;  // delay for calibration
 uint64_t calibrationTimeout = 300000;  // 5m timeout for calibration
+
+// ####### measurement
+uint64_t preleasetime = 10000;  // time the pressure is released for via the valve
+uint64_t pumpinterval = 5000;  // duration the pump is turned on for
+uint64_t equitime = 2000;  // duration the system is left to equalize
+// ####### pressure sensor configs
 uint16_t psensorgain = 64;  // gain for the HX711 module. possible vars are 64 and 128 for channel A
-uint8_t eepromscaleadress = 0;  // address for storing the psensor scaling factor in eeprom
+uint16_t psensortestoffset = 100;  // offset for system pressure test. 
 uint32_t psensorscale = 0;  // scaling factor for the calibrated scale
+
+// ####### EEPROM
+uint8_t eepromscaleadress = 0;  // address for storing the psensor scaling factor in eeprom
 // ############## config vars
 
 // ############## measurement
@@ -72,10 +86,13 @@ bool selftestflag = false;  // flag for self testing
 bool calibrateflag = false;  // flag for starting calibration
 bool resetflag = false;  // flag for resetting from error
 // ############## flags
+
+// ############## MQTT
 String statePublishTopic = "Cistern/state";
 String measurePublishTopic = "Cistern/values";
 String commandTopic = "Cistern/Cmnd/#";
 String EspStatus = "INIT";
+// ############## MQTT
 
 uint8_t dios[] = 
 {
@@ -84,6 +101,10 @@ uint8_t dios[] =
 };
 
 void psensordebug()
+/**
+ * \brief This function is for debugging the pressure sensor.
+*/
+
 {
    if (psensor.is_ready()) {
     long reading = psensor.read();
@@ -108,15 +129,28 @@ void psensordebug()
 
 
 void clientstatepub(String message)
+/**
+ * \brief Function for publishing state to state topic.
+*/
 {
   client.publish(statePublishTopic, message);
 }
 
 void clientvalpub(String message)
+/**
+ * \brief Function for publishing values to val topic.
+*/
 {
   client.publish(measurePublishTopic, message);
 }
 void statusPrinter(int force)
+/**
+ * \brief Function for publishing defined messages regularly on the serial bus.
+ * 
+ * The function is executed if a defined interval has been reached or if "force" is set to 1 or 2.
+ * If "force" is set to 1 "statusInterval" is decreased to enable publishing more often.
+ * "force" is currently also used in OTA mode to indicate that the device is busy.
+*/
 {
   long now = millis();
   if ((now - lastStatus >= statusInterval) or force == 1)
@@ -133,9 +167,7 @@ void statusPrinter(int force)
     {
       statusInterval = 5000;
     }
-    //debug
-    // psensordebug();
-    //debug
+
   }
   else if (force == 2)
   {
@@ -149,10 +181,18 @@ void statusPrinter(int force)
   }
 }
 void statemachine()
+/**
+ * \brief  Main state machine, is called every loop.
+ * 
+ * This state machine implements the functionality of measuring the cistern level and transmitting the measured values via MQTT.
+ * Starting in init mode several inputs are checked for validity. If the check passes the device enters standby mode.
+ * In Standby mode 
+*/
 {
   switch (OPMODE)
   {
   case MODE_INIT:
+  {
     // check for inputs deactivated
     EspStatus = "Initializing";
     resetflag = false;  // reset resetflag in case device was reset from Err State
@@ -169,6 +209,7 @@ void statemachine()
     }
     
     break;
+  }
   case MODE_STANDBY:
     // check for start flag
 
@@ -203,10 +244,12 @@ void statemachine()
   }
   case MODE_SELFTEST:
    {
-    // activate pump
-    // measure pressure for a definec timeframe
-    // if pressure rises, system is able to function
-    // else go into Error mode
+    /**
+     * activate pump
+     * measure pressure for a definec timeframe
+     * if pressure rises, system is able to function
+     * else go into Error mode
+    */
     statusInterval = 1000;
     long now = millis();
     EspStatus = "Self Test";
@@ -216,13 +259,14 @@ void statemachine()
       digitalWrite(pin_valve, HIGH);  // close valve
       for (size_t i = 0; i < 5; i++)
       {
-        Serial.print("reading psensor");
-        pressureval = readpsensor();  // read current pressure as baseline
-        if (pressureval != 0)
+        Serial.println("reading psensor");
+        pressurevalold = readpsensor();  // read current pressure as baseline
+        if (pressurevalold != 0)
         {
           break;
         } 
       }
+      Serial.printf("Pressure value before pressurization: %d",pressurevalold);
       digitalWrite(pin_pump, HIGH);  // enable pump
       selftestflag = true;
     }
@@ -231,7 +275,17 @@ void statemachine()
     if (now - lastSelfTest >= selfTestInterval )
     {
       digitalWrite(pin_pump, LOW);  // disable pump
-      if (readpsensor() > pressureval)
+      for (size_t i = 0; i < 5; i++)
+      {
+        Serial.println("reading psensor");
+       pressureval = readpsensor();  // read current pressure as baseline
+        if (pressureval != 0)
+        {
+          break;
+        } 
+      }
+      Serial.printf("Pressure value after pressurization: %d",pressureval);
+      if (pressureval > pressurevalold)
       {
         // time stamp self test done
         // for releasing all the pressure from the system
@@ -270,33 +324,44 @@ void statemachine()
     long now = millis();
     digitalWrite(pin_valve,HIGH);  // close valve
     digitalWrite(pin_pump,HIGH);  // activate pump to pressurize the system
+    
     if (now - lastcalibration > calibrationdelay)
     {
+      Serial.println("Calibration interval reached.");
       psensor.set_scale();  // set scale without having calibrated value
       psensor.tare();  // tare scale
       psensorunits = psensor.get_units(10);  // get untared units
-    
+      Serial.printf("Measured psensor units: %f",psensorunits);
+      Serial.println("");
+      Serial.printf("Measured depth value: %f ", measureddepth);
+      Serial.println("");
       if (measureddepth != 0.0)
       {
         calcscale = psensorunits / measureddepth;  // calculate scale factor
+        Serial.printf("Calculated scale value: %f ",calcscale);
+        Serial.println("");
         psensor.set_scale(calcscale);
         measurementreceived = true;
-        measureddepth = 0.0;
+        EspStatus = "Calibration done";
+        statusPrinter(1);
+        OPMODE = MODE_STANDBY;
+        //measureddepth = 0.0;
       }
     }
-    else if (now - lastcalibration > calibrationTimeout or measurementreceived)
-    {
-      OPMODE = MODE_STANDBY;
-      calibrateflag = false;
-    }
+   
     break;
   }
   case MODE_START:
 {   
+  long now = millis();
+  if (now - lastcalibration > calibrationdelay)
+    {
 
-    // enable solenoid valve for some time to release all pressure in the system
+    }
+    
+    // open solenoid valve for some time to release all pressure in the system
     // calibrate zero
-    // disable solenoid valve
+    // close solenoid valve
     // enable pumping to pressurize system for some time
     // disable pump
     // measure pressure
@@ -355,12 +420,14 @@ void messageReceived(String &topic, String &payload)
   payload.trim();
   Serial.print("trimmed payload: |");
   Serial.print(payload);
-  Serial.print("|");
+  Serial.println("|");
   
   if (topic == "Cistern/Cmnd/Calibrate" and !interlock)
   {
     calibrateflag = true;
     measureddepth = payload.toFloat();
+    Serial.printf("Extracted value: %f ", measureddepth);
+    Serial.println("");
     interlock = true;
   }
   
@@ -418,7 +485,7 @@ void setup()
   // init mqtt client
   client.begin("192.168.178.81", 1883, net);
   client.onMessage(messageReceived);
-  client.setKeepAlive(60);
+  client.setKeepAlive(90);
   connectMQTT();
 }
 
@@ -439,7 +506,6 @@ void loop()
   {
     statusPrinter(0);
   }
-  statusPrinter(0);
   statemachine();
 
   // put your main code here, to run repeatedly:

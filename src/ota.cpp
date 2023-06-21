@@ -15,7 +15,10 @@ void setupota(const char otapass[])
     }
     Serial.println("Start updating" + type); });
   ArduinoOTA.onEnd([]()
-                   { Serial.println("\nEnd"); });
+                   {
+                    Serial.println("\nEnd"); 
+                    ESP.reset();
+                   });
   ArduinoOTA.onProgress([](uint32_t progress, uint32_t total)
                         { Serial.printf("Progress: %u%%\r", (progress / (total / 100))); });
   ArduinoOTA.onError([](ota_error_t error)
