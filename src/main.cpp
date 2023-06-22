@@ -207,6 +207,7 @@ void statemachine()
     {
       EspStatus = "Standby";
       OPMODE = MODE_STANDBY;
+      statusPrinter(1);
     }
     
     break;
@@ -214,7 +215,7 @@ void statemachine()
   case MODE_STANDBY:
     // check for start flag
 
-    statusInterval = 300000;
+    statusInterval = 300000;  // set status interval to 30s
     if (otaflag)
     {
       EspStatus = "OTA_RDY";
@@ -329,11 +330,12 @@ void statemachine()
     if (now - lastcalibration > calibrationdelay)
     {
       digitalWrite(pin_pump,LOW);  // deactivate pump
-      delay(equitime);  // let the system rest
+      //delay(equitime);  // let the system rest
       Serial.println("Calibration interval reached.");
       psensor.set_scale();  // set scale without having calibrated value
       psensor.tare();  // tare scale
       psensorunits = psensor.get_units(10);  // get untared units
+      yield(); // pet wdt
       Serial.printf("Measured psensor units: %f",psensorunits);
       Serial.println("");
       Serial.printf("Measured depth value: %f ", measureddepth);
@@ -344,10 +346,12 @@ void statemachine()
         Serial.printf("Calculated scale value: %f ",calcscale);
         Serial.println("");
         psensor.set_scale(calcscale);
+        yield(); // pet wdt
         psensorunits = psensor.get_units(10);  // get units
         clientvalpub(String(psensorunits));  // cast float to string for publishing
         digitalWrite(pin_valve,LOW);  // open valve
         EspStatus = "Calibration done";
+        calibrateflag = false;  // reset calibrate flag
         statusPrinter(1);
         OPMODE = MODE_STANDBY;
         //measureddepth = 0.0;
