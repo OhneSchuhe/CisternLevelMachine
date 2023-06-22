@@ -320,7 +320,6 @@ void statemachine()
     // wait for input of measured height of the water level in the cistern via MQTT
     // calculate the parameter for set_scale()
     // TODO: add a method of checking calculated height against measured height and adjust scale parameter accordingly
-    bool measurementreceived = false;  // flag for exiting while loop or something to wait on measurement of actual depth
     float psensorunits = 0.0;
     float calcscale = 0.0;
     long now = millis();
@@ -345,7 +344,8 @@ void statemachine()
         Serial.printf("Calculated scale value: %f ",calcscale);
         Serial.println("");
         psensor.set_scale(calcscale);
-        measurementreceived = true;
+        psensorunits = psensor.get_units(10);  // get units
+        clientvalpub(String(psensorunits));  // cast float to string for publishing
         digitalWrite(pin_valve,LOW);  // open valve
         EspStatus = "Calibration done";
         statusPrinter(1);
@@ -381,6 +381,7 @@ void statemachine()
 }
   case MODE_MEASURE:
   {
+    float psensorunits;
     long now = millis();
     if (now - lastMeasurement > pumpinterval)
     {
@@ -388,6 +389,8 @@ void statemachine()
       digitalWrite(pin_pump,LOW);  
       delay(equitime);
       // measure pressure
+      psensorunits = psensor.get_units(10);  // get units
+      clientvalpub(String(psensorunits));  // cast float to string for publishing
       // calculate volume
       // publish calculated value to MQTT
     }
